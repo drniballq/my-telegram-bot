@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: my-telegram-bot
+    name: telegram-bot
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    startCommand: gunicorn main:app
     pythonVersion: 3.10
