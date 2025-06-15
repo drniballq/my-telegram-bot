@@ -102,3 +102,25 @@ def reply_as_admin(message):
         bot.send_message(ADMIN_ID, "❗ لم يتم العثور على الطالب المرتبط.")
 
 print("✅ Bot is running via Webhook")
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Invalid content type', 403
+
+# إعداد Webhook مع رابط تطبيقك على Render
+WEBHOOK_URL = "https://my-telegram-bot-t5g0.onrender.com"
+bot.remove_webhook()
+bot.set_webhook(url=WEBHOOK_URL)
+
+# تشغيل Flask لاستقبال الطلبات من Telegram
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
