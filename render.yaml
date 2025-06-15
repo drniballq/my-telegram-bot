@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: ai-nudz-bot
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 8183048934:AAH4wGaBRFcgcqr-nYLr_hmeBtciLeDf8Vo
+      - key: ADMIN_ID
+        value: "7015906135"
+      - key: WEBHOOK_URL
+        value: https://my-telegram-bot-t5g0.onrender.com/webhook
